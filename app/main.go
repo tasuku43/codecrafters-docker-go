@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"errors"
 	"os"
 	"os/exec"
 )
@@ -17,6 +17,12 @@ func main() {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			os.Exit(exitError.ExitCode())
+		} else {
+			os.Exit(1)
+		}
 	}
+	os.Exit(0)
 }
