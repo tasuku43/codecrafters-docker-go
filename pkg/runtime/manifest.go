@@ -25,11 +25,13 @@ type ImageManifest struct {
 		Size      int    `json:"size"`
 		Digest    string `json:"digest"`
 	} `json:"config"`
-	Layers []struct {
-		MediaType string `json:"mediaType"`
-		Size      int    `json:"size"`
-		Digest    string `json:"digest"`
-	} `json:"layers"`
+	Layers []ManifestLayer
+}
+
+type ManifestLayer struct {
+	MediaType string `json:"mediaType"`
+	Size      int    `json:"size"`
+	Digest    string `json:"digest"`
 }
 
 func (m Manifests) findDigest(arch string, os string) (string, error) {
