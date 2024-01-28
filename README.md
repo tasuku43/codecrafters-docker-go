@@ -38,7 +38,7 @@ locally.
 Next, add a [shell alias](https://shapeshed.com/unix-alias/):
 
 ```sh
-alias mydocker='docker build -t mydocker . && docker run --cap-add="SYS_ADMIN" mydocker'
+alias runtime='docker build -t runtime . && docker run --cap-add="SYS_ADMIN" runtime'
 ```
 
 (The `--cap-add="SYS_ADMIN"` flag is required to create
@@ -47,5 +47,5 @@ alias mydocker='docker build -t mydocker . && docker run --cap-add="SYS_ADMIN" m
 You can now execute your program like this:
 
 ```sh
-mydocker run ubuntu:latest /usr/local/bin/docker-explorer echo hey
+runtime run ubuntu:latest /usr/local/bin/docker-explorer echo hey
 ```
