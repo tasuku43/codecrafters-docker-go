@@ -5,24 +5,64 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/codecrafters-io/docker-starter-go/pkg/images"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
-// Usage: your_docker.sh run <image> <command> <arg1> <arg2> ...
+// Usage: your_docker.sh run <images> <command> <arg1> <arg2> ...
 func main() {
+	image := os.Args[2]
 	command := os.Args[3]
 	args := os.Args[4:len(os.Args)]
 
-	isolatedEnv, err := createIsolatedEnv(command, args)
+	imageRetriever, _ := images.NewOCIImageRetriever(images.ParseImageString(image))
+	imagesDir, err := imageRetriever.Pull()
+
+	containerDir, err := os.MkdirTemp("", "containers-root")
 	if err != nil {
-		fmt.Println("error creating isolated env: ", err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-	defer isolatedEnv.deferFunc()
-	cmd := isolatedEnv.cmd
+	defer os.RemoveAll(containerDir)
+
+	files, err := os.ReadDir(imagesDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".tar") {
+			tarPath := filepath.Join(imagesDir, file.Name())
+
+			cmd := exec.Command("tar", "-xvf", tarPath, "-C", containerDir)
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("Error extracting %s: %s\n", tarPath, err)
+			}
+		}
+	}
+
+	if err := syscall.Chroot(containerDir); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := os.Chdir("/"); err != nil {
+		log.Fatal(err)
+	}
+
+	devNull, err := os.Create("/dev/null")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer devNull.Close()
+
+	cmd := exec.Command(command, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWPID,
+	}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -30,76 +70,12 @@ func main() {
 	if err := cmd.Run(); err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
+			fmt.Println(err)
 			os.Exit(exitError.ExitCode())
 		} else {
+			fmt.Println(err)
 			os.Exit(1)
 		}
 	}
 	os.Exit(0)
-}
-
-type IsolatedEnv struct {
-	cmd     *exec.Cmd
-	cleanup []func()
-}
-
-func (env *IsolatedEnv) deferFunc() {
-	for _, cleanup := range env.cleanup {
-		cleanup()
-	}
-}
-
-func createIsolatedEnv(binPath string, args []string) (*IsolatedEnv, error) {
-	var cleanup []func()
-	tempDir, err := os.MkdirTemp("", "isolated-root")
-	if err != nil {
-		return nil, err
-	}
-
-	cleanup = append(cleanup, func() {
-		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Println("error removing temp dir: ", err)
-		}
-	})
-
-	binDir := filepath.Dir(binPath)
-	execPath := filepath.Join(tempDir, binDir)
-	if err := os.MkdirAll(execPath, 0755); err != nil {
-		return nil, err
-	}
-
-	binName := filepath.Base(binPath)
-	isolatedBinPath := filepath.Join(execPath, binName)
-	if err := os.Link(binPath, isolatedBinPath); err != nil {
-		return nil, fmt.Errorf("error linking %s: %w", binName, err)
-	}
-
-	if err := syscall.Chroot(tempDir); err != nil {
-		return nil, err
-	}
-
-	if err := os.Chdir("/"); err != nil {
-		return nil, err
-	}
-
-	if err := os.Mkdir("/dev", 0755); err != nil {
-		return nil, err
-	}
-
-	devNull, err := os.Create("/dev/null")
-	if err != nil {
-		return nil, err
-	}
-	cleanup = append(cleanup, func() {
-		if err := devNull.Close(); err != nil {
-			fmt.Println("error closing dev null: ", err)
-		}
-	})
-
-	cmd := exec.Command(binPath, args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWPID,
-	}
-
-	return &IsolatedEnv{cmd, cleanup}, nil
 }
