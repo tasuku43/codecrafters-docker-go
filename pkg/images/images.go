@@ -109,8 +109,6 @@ func NewOCIImageRetriever(image string, tag string) (*OCIImageRetriever, error) 
 }
 
 func (d *OCIImageRetriever) Pull() (string, error) {
-	// imageのキャッシュを探す。なければpullする
-
 	manifest, err := d.fetchImageManifest()
 	if err != nil {
 		return "", err

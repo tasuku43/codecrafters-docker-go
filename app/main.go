@@ -22,27 +22,17 @@ func main() {
 
 	imageRetriever, _ := images.NewOCIImageRetriever(images.ParseImageString(image))
 	imagesDir, err := imageRetriever.Pull()
+	defer removeDirectory(imagesDir)
 
 	containerDir, err := os.MkdirTemp("", "containers-root")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(containerDir)
+	defer removeDirectory(containerDir)
 
-	files, err := os.ReadDir(imagesDir)
+	err = extractTarFiles(imagesDir, containerDir)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	for _, file := range files {
-		if strings.HasSuffix(file.Name(), ".tar") {
-			tarPath := filepath.Join(imagesDir, file.Name())
-
-			cmd := exec.Command("tar", "-xvf", tarPath, "-C", containerDir)
-			if err := cmd.Run(); err != nil {
-				fmt.Printf("Error extracting %s: %s\n", tarPath, err)
-			}
-		}
 	}
 
 	if err := syscall.Chroot(containerDir); err != nil {
@@ -57,7 +47,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer devNull.Close()
+	defer func() {
+		err := devNull.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
 	cmd := exec.Command(command, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -78,4 +73,29 @@ func main() {
 		}
 	}
 	os.Exit(0)
+}
+
+func extractTarFiles(sourceDir string, targetDir string) error {
+	files, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".tar") {
+			tarPath := filepath.Join(sourceDir, file.Name())
+			cmd := exec.Command("tar", "-xvf", tarPath, "-C", targetDir)
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("error extracting %s: %w", tarPath, err)
+			}
+		}
+	}
+	return nil
+}
+
+func removeDirectory(dir string) {
+	err := os.RemoveAll(dir)
+	if err != nil {
+		log.Printf("Failed to remove directory %s: %v", dir, err)
+	}
 }
